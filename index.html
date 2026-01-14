@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Neon Tap Game</title>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: #fff;
+    text-align: center;
+}
+
+h1 {
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff;
+}
+
+button {
+    background: #0ff;
+    border: none;
+    padding: 12px 22px;
+    margin: 10px;
+    font-size: 18px;
+    border-radius: 12px;
+}
+
+#grid {
+    display: grid;
+    grid-template-columns: repeat(3, 90px);
+    gap: 15px;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.tile {
+    width: 90px;
+    height: 90px;
+    background: #222;
+    border-radius: 16px;
+    touch-action: manipulation;
+}
+
+.tile.active {
+    background: #0ff;
+    box-shadow: 0 0 20px #0ff;
+}
+</style>
+</head>
+<body>
+
+<h1>Neon Tap</h1>
+
+<input id="username" placeholder="Your name"><br>
+
+<button onclick="startGame()">Start</button>
+
+<div id="game" style="display:none">
+    <p>Score: <span id="score">0</span></p>
+    <div id="grid"></div>
+</div>
+
+<h3>🌍 Global Leaderboard</h3>
+<ol id="leaderboard"></ol>
+
+<audio id="tapSound" src="sounds/tap.mp3"></audio>
+<audio id="failSound" src="sounds/fail.mp3"></audio>
+
+<script>
+const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+    projectId: "YOUR_PROJECT",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let score = 0;
+let active = -1;
+
+const grid = document.getElementById("grid");
+
+for (let i = 0; i < 9; i++) {
+    const d = document.createElement("div");
+    d.className = "tile";
+    d.onclick = () => tap(i);
+    grid.appendChild(d);
+}
+
+function startGame() {
+    document.getElementById("game").style.display = "block";
+    score = 0;
+    next();
+}
+
+function next() {
+    document.querySelectorAll(".tile")[active]?.classList.remove("active");
+    active = Math.floor(Math.random() * 9);
+    document.querySelectorAll(".tile")[active].classList.add("active");
+}
+
+function tap(i) {
+    if (i === active) {
+        score++;
+        document.getElementById("tapSound").play();
+        if (navigator.vibrate) navigator.vibrate(50);
+    } else {
+        document.getElementById("failSound").play();
+        endGame();
+        return;
+    }
+    document.getElementById("score").innerText = score;
+    next();
+}
+
+function endGame() {
+    const name = document.getElementById("username").value || "Player";
+    db.ref("scores").push({ name, score });
+    loadScores();
+}
+
+function loadScores() {
+    db.ref("scores").limitToLast(10).on("value", snap => {
+        const list = document.getElementById("leaderboard");
+        list.innerHTML = "";
+        snap.forEach(s => {
+            const li = document.createElement("li");
+            li.textContent = s.val().name + ": " + s.val().score;
+            list.prepend(li);
+        });
+    });
+}
+
+loadScores();
+</script>
+</body>
+</html>
