@@ -57,14 +57,23 @@ button {
     box-shadow: 0 0 20px #f00;
 }
 #leaderboard {
-    #leaderboard {
     max-width: 320px;
     margin: 20px auto;
     text-align: left;
-    max-height: 420px;
-    overflow-y: auto;
-    padding-right: 10px;
+    max-height: 500px; /* scrollable area */
+    overflow-y: auto;  /* enable vertical scroll */
+    border: 1px solid #0ff;
+    padding: 10px;
+    border-radius: 12px;
+    background: #111;
 }
+#leaderboard h3 {
+    text-align: center;
+    margin-top: 0;
+}
+#leaderboard li {
+    padding: 4px 0;
+    border-bottom: 1px solid #0ff33a33;
 }
 </style>
 
@@ -75,7 +84,7 @@ button {
 
 <body>
 
-<h1>Neon Tap</h1>
+<h1>TapTapTap</h1>
 
 <input id="username" placeholder="Unique username"><br>
 
@@ -98,7 +107,7 @@ button {
 
 <div id="leaderboard">
     <h3>🌍 Global Top 50</h3>
-<ol id="scores"></ol>
+    <ol id="scores"></ol>
 </div>
 
 <script>
@@ -267,7 +276,7 @@ async function endGame() {
 async function loadLeaderboard() {
     const snap = await db.collection("players")
         .orderBy("score", "desc")
-        .limit(5)
+        .limit(50)  // 🔥 top 50
         .get();
 
     const list = document.getElementById("scores");
@@ -285,9 +294,3 @@ loadLeaderboard();
 
 </body>
 </html>
-
-
-
-
-
-  
