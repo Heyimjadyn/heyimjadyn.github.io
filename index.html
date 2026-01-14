@@ -2,12 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Neon Tap Game</title>
-
-<!-- Firebase SDKs -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Tap</title>
 
 <style>
 body {
@@ -17,129 +13,281 @@ body {
     color: #fff;
     text-align: center;
 }
-
 h1 {
     color: #0ff;
     text-shadow: 0 0 10px #0ff;
 }
-
+input, select {
+    padding: 10px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: none;
+    margin: 6px;
+}
 button {
     background: #0ff;
     border: none;
-    padding: 12px 22px;
-    margin: 10px;
+    padding: 12px 20px;
+    margin: 8px;
     font-size: 18px;
     border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 0 10px #0ff;
 }
-
 #grid {
     display: grid;
-    grid-template-columns: repeat(3, 90px);
+    grid-template-columns: repeat(3, 100px);
     gap: 15px;
     justify-content: center;
-    margin-top: 20px;
+    margin: 20px auto;
 }
-
 .tile {
-    width: 90px;
-    height: 90px;
+    width: 100px;
+    height: 100px;
     background: #222;
-    border-radius: 16px;
-    touch-action: manipulation;
+    border-radius: 15px;
+    cursor: pointer;
 }
-
 .tile.active {
     background: #0ff;
     box-shadow: 0 0 20px #0ff;
 }
+.tile.red {
+    background: #f00;
+    box-shadow: 0 0 20px #f00;
+}
+#leaderboard {
+    #leaderboard {
+    max-width: 320px;
+    margin: 20px auto;
+    text-align: left;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 10px;
+}
+}
 </style>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
+
 <body>
 
 <h1>Neon Tap</h1>
 
-<input id="username" placeholder="Your name"><br>
+<input id="username" placeholder="Unique username"><br>
 
-<button onclick="startGame()">Start</button>
+<select id="mode">
+    <option value="endless">Endless (Practice)</option>
+    <option value="blitz">Blitz (30s)</option>
+    <option value="classic">Classic (60s)</option>
+</select><br>
+
+<button onclick="startGame()">Start Game</button>
 
 <div id="game" style="display:none">
-    <p>Score: <span id="score">0</span></p>
+    <p>
+        Score: <span id="score">0</span> |
+        Time: <span id="timer">∞</span>
+    </p>
     <div id="grid"></div>
+    <button onclick="endGame()">End Game</button>
 </div>
 
-<h3>🌍 Global Leaderboard</h3>
-<ol id="leaderboard"></ol>
-
-<audio id="tapSound" src="sounds/tap.mp3"></audio>
-<audio id="failSound" src="sounds/fail.mp3"></audio>
+<div id="leaderboard">
+    <h3>🌍 Global Top 50</h3>
+<ol id="scores"></ol>
+</div>
 
 <script>
+// 🔥 FIREBASE CONFIG (REPLACE WITH YOUR OWN)
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT.firebaseio.com",
-    projectId: "YOUR_PROJECT",
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_BUCKET",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
 
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// 🔊 SOUND EFFECTS
+const tapSound = new Audio("https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3");
+const errorSound = new Audio("https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3");
+const endSound = new Audio("https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3");
+
+// GAME STATE
 let score = 0;
 let active = -1;
+let player = "";
+let mode = "endless";
+let timeLeft = 0;
+let timerInterval;
 
+// ANTI-CHEAT
+let gameStartTime = 0;
+let lastTapTime = 0;
+let tapsThisSecond = 0;
+let secondWindow = 0;
+
+const MAX_TAPS_PER_SECOND = 8;
+const MAX_SCORE_PER_SECOND = 10;
+const MAX_GAME_TIME = 300;
+
+// GRID SETUP
 const grid = document.getElementById("grid");
-
 for (let i = 0; i < 9; i++) {
-    const d = document.createElement("div");
-    d.className = "tile";
-    d.onclick = () => tap(i);
-    grid.appendChild(d);
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    tile.onclick = () => tap(i);
+    grid.appendChild(tile);
 }
 
-function startGame() {
-    document.getElementById("game").style.display = "block";
+function activateTile() {
+    const tiles = document.querySelectorAll(".tile");
+    tiles.forEach(t => t.classList.remove("active", "red"));
+
+    active = Math.floor(Math.random() * tiles.length);
+    tiles[active].classList.add("active");
+
+    if (mode === "classic") {
+        let redIndex;
+        do {
+            redIndex = Math.floor(Math.random() * tiles.length);
+        } while (redIndex === active);
+        tiles[redIndex].classList.add("red");
+    }
+}
+
+async function startGame() {
+    const name = document.getElementById("username").value.trim();
+    if (!name) return alert("Enter a username");
+
+    const doc = await db.collection("players").doc(name.toLowerCase()).get();
+    if (doc.exists) return alert("Username already taken");
+
+    player = name;
+    mode = document.getElementById("mode").value;
     score = 0;
-    next();
+
+    gameStartTime = Date.now();
+    lastTapTime = 0;
+    tapsThisSecond = 0;
+    secondWindow = Math.floor(Date.now() / 1000);
+
+    document.getElementById("score").textContent = score;
+    document.getElementById("game").style.display = "block";
+
+    if (mode === "blitz") timeLeft = 30;
+    else if (mode === "classic") timeLeft = 60;
+    else timeLeft = Infinity;
+
+    document.getElementById("timer").textContent =
+        timeLeft === Infinity ? "∞" : timeLeft;
+
+    if (timeLeft !== Infinity) {
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            document.getElementById("timer").textContent = timeLeft;
+            if (timeLeft <= 0) endGame();
+        }, 1000);
+    }
+
+    activateTile();
 }
 
-function next() {
-    document.querySelectorAll(".tile")[active]?.classList.remove("active");
-    active = Math.floor(Math.random() * 9);
-    document.querySelectorAll(".tile")[active].classList.add("active");
-}
+function tap(index) {
+    const now = Date.now();
 
-function tap(i) {
-    if (i === active) {
+    // Anti-cheat: tap speed
+    if (lastTapTime && now - lastTapTime < 80) return;
+    lastTapTime = now;
+
+    // Anti-cheat: taps per second
+    const currentSecond = Math.floor(now / 1000);
+    if (currentSecond !== secondWindow) {
+        secondWindow = currentSecond;
+        tapsThisSecond = 0;
+    }
+    tapsThisSecond++;
+    if (tapsThisSecond > MAX_TAPS_PER_SECOND) return;
+
+    const tiles = document.querySelectorAll(".tile");
+
+    if (tiles[index].classList.contains("active")) {
         score++;
-        document.getElementById("tapSound").play();
-        if (navigator.vibrate) navigator.vibrate(50);
-    } else {
-        document.getElementById("failSound").play();
-        endGame();
+        tapSound.currentTime = 0;
+        tapSound.play();
+    }
+    else if (mode === "classic" && tiles[index].classList.contains("red")) {
+        score = Math.max(0, score - 2);
+        errorSound.currentTime = 0;
+        errorSound.play();
+    }
+    else {
         return;
     }
-    document.getElementById("score").innerText = score;
-    next();
+
+    document.getElementById("score").textContent = score;
+    activateTile();
 }
 
-function endGame() {
-    const name = document.getElementById("username").value || "Player";
-    db.ref("scores").push({ name, score });
-    loadScores();
+async function endGame() {
+    clearInterval(timerInterval);
+    endSound.play();
+    document.getElementById("game").style.display = "none";
+
+    const gameTime = (Date.now() - gameStartTime) / 1000;
+    const scoreRate = score / gameTime;
+
+    if (
+        gameTime < 5 ||
+        gameTime > MAX_GAME_TIME ||
+        scoreRate > MAX_SCORE_PER_SECOND
+    ) {
+        alert("Score rejected (cheating detected)");
+        return;
+    }
+
+    await db.collection("players").doc(player.toLowerCase()).set({
+        username: player,
+        score: score,
+        mode: mode,
+        duration: Math.floor(gameTime),
+        time: Date.now()
+    });
+
+    loadLeaderboard();
 }
 
-function loadScores() {
-    db.ref("scores").limitToLast(10).on("value", snap => {
-        const list = document.getElementById("leaderboard");
-        list.innerHTML = "";
-        snap.forEach(s => {
-            const li = document.createElement("li");
-            li.textContent = s.val().name + ": " + s.val().score;
-            list.prepend(li);
-        });
+async function loadLeaderboard() {
+    const snap = await db.collection("players")
+        .orderBy("score", "desc")
+        .limit(5)
+        .get();
+
+    const list = document.getElementById("scores");
+    list.innerHTML = "";
+
+    snap.forEach(doc => {
+        const li = document.createElement("li");
+        li.textContent = `${doc.data().username}: ${doc.data().score}`;
+        list.appendChild(li);
     });
 }
 
-loadScores();
+loadLeaderboard();
 </script>
+
 </body>
 </html>
+
+
+
+
+
+  
